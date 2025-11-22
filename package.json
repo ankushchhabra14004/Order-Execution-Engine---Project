@@ -1,0 +1,10 @@
+{
+  "name": "order-execution-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock order execution engine for Solana DEX with WebSocket real-time updates",
+  "scripts": {
+    "backend": "node server-standalone.js",
+    "frontend": "node serve-frontend.js"
+  }
+}

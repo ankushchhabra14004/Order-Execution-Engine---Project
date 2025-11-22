@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Execution Engine</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 900px;
+      width: 100%;
+      padding: 32px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 768px) {
+      .container { grid-template-columns: 1fr; }
+    }
+    h1 { grid-column: 1/-1; font-size: 24px; color: #333; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    label { font-weight: 500; color: #555; font-size: 13px; }
+    input {
+      padding: 10px;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input:focus { outline: none; border-color: #667eea; }
+    button {
+      grid-column: 1/-1;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    #log {
+      grid-column: 1/-1;
+      background: #1a1a1a;
+      color: #00ff00;
+      padding: 14px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      height: 300px;
+      overflow-y: auto;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .info { grid-column: 1/-1; font-size: 12px; color: #666; padding: 12px; background: #f0f0f0; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💱 Order Execution</h1>
+    
+    <div class="form-group">
+      <label>Token In</label>
+      <input id="tokenIn" value="SOL" placeholder="SOL">
+    </div>
+    
+    <div class="form-group">
+      <label>Token Out</label>
+      <input id="tokenOut" value="USDC" placeholder="USDC">
+    </div>
+    
+    <div class="form-group">
+      <label>Amount</label>
+      <input id="amountIn" type="number" value="100" min="1">
+    </div>
+    
+    <div class="form-group">
+      <label>Orders</label>
+      <input id="numOrders" type="number" value="1" min="1" max="10">
+    </div>
+    
+    <button id="submitBtn">Submit</button>
+    
+    <div id="log"></div>
+    <div class="info">WebSocket real-time order tracking • Backend: localhost:3000 • DEX: Raydium/Meteora</div>
+  </div>
+
+<script>
+// ========== CONFIGURATION ==========
+/** Backend API endpoint for order submission */
+const API_BASE = 'http://localhost:3000';
+
+// ========== DOM ELEMENTS ==========
+/** Log display container */
+const logEl = document.getElementById('log');
+/** Submit button for initiating orders */
+const submitBtn = document.getElementById('submitBtn');
+
+// ========== UTILITY FUNCTIONS ==========
+
+/**
+ * Log a message to the frontend console with timestamp
+ * Appends message to the log display and auto-scrolls to bottom
+ * @param {string} msg - Message to log
+ */
+function log(msg) {
+  const ts = new Date().toLocaleTimeString();
+  logEl.textContent += `[${ts}] ${msg}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ========== BUTTON HANDLERS ==========
+
+/**
+ * Submit button click handler
+ * Validates form inputs and submits one or more orders
+ * Orders are submitted in parallel (Promise.all)
+ */
+submitBtn.onclick = async () => {
+  // Get form inputs
+  const tokenIn = document.getElementById('tokenIn').value.trim();
+  const tokenOut = document.getElementById('tokenOut').value.trim();
+  const amountIn = Number(document.getElementById('amountIn').value);
+  const numOrders = Number(document.getElementById('numOrders').value);
+
+  // Validate all required fields are filled
+  if (!tokenIn || !tokenOut || !amountIn) {
+    log('⚠️  Fill all fields');
+    return;
+  }
+
+  // Disable button during submission
+  submitBtn.disabled = true;
+  log(`📤 Submitting ${numOrders} order(s)...`);
+
+  // Create array of order submission promises
+  const promises = [];
+  for (let i = 0; i < numOrders; i++) {
+    promises.push(submitOrder(tokenIn, tokenOut, amountIn, i + 1));
+  }
+
+  // Wait for all orders to be submitted
+  await Promise.all(promises);
+  
+  // Re-enable button after all submissions complete
+  submitBtn.disabled = false;
+};
+
+// ========== ORDER SUBMISSION ==========
+
+/**
+ * Submit a single market order to the backend
+ * 
+ * Flow:
+ * 1. Add slight random variance to amount (±5%)
+ * 2. Send POST request to /api/orders/execute
+ * 3. Receive orderId and WebSocket URL
+ * 4. Connect WebSocket to receive real-time status updates
+ * 
+ * @param {string} tokenIn - Input token symbol
+ * @param {string} tokenOut - Output token symbol
+ * @param {number} amountIn - Base amount to swap
+ * @param {number} num - Order number for logging
+ */
+async function submitOrder(tokenIn, tokenOut, amountIn, num) {
+  try {
+    // Add slight randomness to order amounts (±5% variance)
+    const amount = (amountIn + (Math.random() - 0.5) * 10).toFixed(2);
+    log(`Order #${num}: ${amount} ${tokenIn} → ${tokenOut}`);
+
+    // Send POST request to backend API
+    const res = await fetch(`${API_BASE}/api/orders/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        type: 'market',          // Market order type (immediate execution)
+        tokenIn,                 // Input token
+        tokenOut,                // Output token
+        amountIn: parseFloat(amount)  // Amount to swap
+      })
+    });
+
+    // Handle HTTP errors
+    if (!res.ok) {
+      log(`Order #${num}: ❌ ${await res.text()}`);
+      return;
+    }
+
+    // Parse JSON response
+    const data = await res.json();
+    if (data.error) {
+      log(`Order #${num}: ❌ ${data.error}`);
+      return;
+    }
+
+    // Order successfully queued - show orderId and connect WebSocket
+    log(`Order #${num}: ✓ QUEUED (${data.orderId.substring(0, 12)}...)`);
+    connectWS(data.wsUrl, num);
+  } catch (err) {
+    log(`Order #${num}: ❌ ${err.message}`);
+  }
+}
+
+// ========== WEBSOCKET COMMUNICATION ==========
+
+/**
+ * Connect to WebSocket for real-time order status updates
+ * 
+ * Lifecycle:
+ * - onopen: Connection established
+ * - onmessage: Receive status updates (pending → routing → building → submitted → confirmed)
+ * - onerror: Connection failed
+ * - onclose: Connection closed after order completes or error
+ * 
+ * @param {string} url - WebSocket URL provided by backend
+ * @param {number} num - Order number for logging
+ */
+function connectWS(url, num) {
+  // Convert HTTP URL to WebSocket URL
+  const wsUrl = url.replace('http:', 'ws:').replace('https:', 'wss:');
+  
+  // Create WebSocket connection
+  const ws = new WebSocket(wsUrl);
+
+  /**
+   * Connection opened - WebSocket handshake complete
+   */
+  ws.onopen = () => {
+    log(`Order #${num}: 🔗 Connected`);
+  };
+
+  /**
+   * Receive status update from backend
+   * Formats message with status, DEX choice, prices, and transaction info
+   */
+  ws.onmessage = (evt) => {
+    try {
+      // Parse JSON status update
+      const p = JSON.parse(evt.data);
+      
+      // Build formatted message with available fields
+      let msg = `[${p.status?.toUpperCase() || '?'}]`;
+      if (p.chosen) msg += ` → ${p.chosen}`;           // DEX choice
+      if (p.price) msg += ` $${p.price}`;              // Quote price
+      if (p.executedPrice) msg += ` ✓$${p.executedPrice}`; // Final execution price
+      if (p.txHash) msg += ` ${p.txHash}`;             // Transaction hash
+      if (p.error) msg += ` ❌${p.error}`;             // Error message
+      
+      log(`Order #${num}: ${msg}`);
+
+      // Close connection after order reaches terminal state
+      if (p.status === 'confirmed' || p.status === 'failed') ws.close();
+    } catch (e) {
+      log(`Order #${num}: ⚠️  Parse error`);
+    }
+  };
+
+  /**
+   * WebSocket connection error
+   */
+  ws.onerror = () => log(`Order #${num}: ⚠️  Connection error`);
+
+  /**
+   * WebSocket connection closed
+   */
+  ws.onclose = () => log(`Order #${num}: 🔌 Disconnected`);
+}
+</script>
+</body>
+</html>
