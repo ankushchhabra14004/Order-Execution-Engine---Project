@@ -250,6 +250,34 @@ const server = http.createServer((req, res) => {
   const pathname = parsedUrl.pathname;
   const query = parsedUrl.query;
 
+  // ===== Serve static files from public folder =====
+  if (req.method === 'GET' && !pathname.startsWith('/api/')) {
+    let filePath = pathname === '/' ? '/index.html' : pathname;
+    filePath = path.join(__dirname, 'public', filePath);
+    
+    // Security: prevent directory traversal
+    if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden');
+      return;
+    }
+    
+    fs.stat(filePath, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+        return;
+      }
+      
+      const contentType = filePath.endsWith('.html') ? 'text/html' : 
+                         filePath.endsWith('.js') ? 'text/javascript' :
+                         filePath.endsWith('.css') ? 'text/css' : 'text/plain';
+      res.writeHead(200, { 'Content-Type': contentType });
+      fs.createReadStream(filePath).pipe(res);
+    });
+    return;
+  }
+
   // ===== POST /api/orders/execute - Submit Order =====
   if (pathname === '/api/orders/execute' && req.method === 'POST') {
     let body = '';
@@ -279,7 +307,10 @@ const server = http.createServer((req, res) => {
 
         // Generate unique order ID and WebSocket URL for client
         const orderId = uuidv4();
-        const wsUrl = `ws://localhost:${PORT}/api/orders/execute?orderId=${orderId}`;
+        // Detect if running on Railway or localhost, use appropriate protocol/host
+        const host = req.headers.host;
+        const protocol = host?.includes('railway.app') ? 'wss' : 'ws';
+        const wsUrl = `${protocol}://${host}/api/orders/execute?orderId=${orderId}`;
         const shortId = orderId.substring(0, 12);
 
         // Log order submission
