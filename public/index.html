@@ -240,8 +240,16 @@ async function submitOrder(tokenIn, tokenOut, amountIn, num) {
  */
 function connectWS(url, num) {
   // Convert HTTP URL to WebSocket URL
-  const wsUrl = url.replace('http:', 'ws:').replace('https:', 'wss:');
+  let wsUrl = url.replace('http:', 'ws:').replace('https:', 'wss:');
   
+  // Fallback: if wsUrl contains localhost but we're on Netlify, rebuild from API_BASE
+  if (wsUrl.includes('localhost') && !window.location.hostname.includes('localhost')) {
+    const orderId = new URL(wsUrl).searchParams.get('orderId');
+    wsUrl = `${API_BASE.replace('https:', 'wss:').replace('http:', 'ws:')}/api/orders/execute?orderId=${orderId}`;
+    console.log(`DEBUG: Fallback wsUrl = ${wsUrl}`);
+  }
+  
+  console.log(`DEBUG: Attempting WebSocket connection to: ${wsUrl}`);
   // Create WebSocket connection
   const ws = new WebSocket(wsUrl);
 
