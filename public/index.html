@@ -217,6 +217,7 @@ async function submitOrder(tokenIn, tokenOut, amountIn, num) {
 
     // Order successfully queued - show orderId and connect WebSocket
     log(`Order #${num}: ✓ QUEUED (${data.orderId.substring(0, 12)}...)`);
+    console.log(`DEBUG: wsUrl = ${data.wsUrl}`); // Log to browser console for debugging
     connectWS(data.wsUrl, num);
   } catch (err) {
     log(`Order #${num}: ❌ ${err.message}`);
@@ -280,7 +281,10 @@ function connectWS(url, num) {
   /**
    * WebSocket connection error
    */
-  ws.onerror = () => log(`Order #${num}: ⚠️  Connection error`);
+  ws.onerror = (err) => {
+    console.error(`DEBUG: WebSocket error on ${wsUrl}`, err);
+    log(`Order #${num}: ⚠️  Connection error`);
+  };
 
   /**
    * WebSocket connection closed
