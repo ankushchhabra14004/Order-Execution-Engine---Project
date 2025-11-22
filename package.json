@@ -5,6 +5,7 @@
   "description": "Mock order execution engine for Solana DEX with WebSocket real-time updates",
   "scripts": {
     "backend": "node server-standalone.js",
-    "frontend": "node serve-frontend.js"
+    "frontend": "node serve-frontend.js",
+    "start": "node server-standalone.js"
   }
 }
