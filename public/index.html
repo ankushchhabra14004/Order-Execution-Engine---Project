@@ -97,13 +97,20 @@
     <button id="submitBtn">Submit</button>
     
     <div id="log"></div>
-    <div class="info">WebSocket real-time order tracking • Backend: localhost:3000 • DEX: Raydium/Meteora</div>
+    <div class="info">WebSocket real-time order tracking • Backend: auto-detected • DEX: Raydium/Meteora</div>
   </div>
 
 <script>
 // ========== CONFIGURATION ==========
 /** Backend API endpoint for order submission */
-const API_BASE = 'http://localhost:3000';
+// Auto-detect: use current domain in production, fallback to localhost in dev
+const API_BASE = (() => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3000';
+  }
+  // Production: use Railway domain
+  return 'https://order-execution-engine-project-production.up.railway.app';
+})();
 
 // ========== DOM ELEMENTS ==========
 /** Log display container */
