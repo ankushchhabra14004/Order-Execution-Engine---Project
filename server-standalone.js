@@ -307,11 +307,19 @@ const server = http.createServer((req, res) => {
 
         // Generate unique order ID and WebSocket URL for client
         const orderId = uuidv4();
-        // Detect if running on Railway or localhost, use appropriate protocol/host
-        const host = req.headers.host;
-        const protocol = host?.includes('railway.app') ? 'wss' : 'ws';
-        const wsUrl = `${protocol}://${host}/api/orders/execute?orderId=${orderId}`;
+        // Determine host and protocol, preferring forwarded headers (used by proxies)
+        const forwardedHost = req.headers['x-forwarded-host'];
+        const forwardedProto = req.headers['x-forwarded-proto'];
+        const host = forwardedHost || req.headers.host || 'localhost:' + PORT;
+        // Prefer wss when the original request was https or proxy indicates https
+        const isSecure = (forwardedProto && forwardedProto.includes('https')) || (host && host.includes('railway.app')) || (req.connection && req.connection.encrypted);
+        const protocol = isSecure ? 'wss' : 'ws';
+        // Strip any port from host when appropriate (keep host as provided otherwise)
+        const cleanHost = host.split(',')[0].trim();
+        const wsUrl = `${protocol}://${cleanHost}/api/orders/execute?orderId=${orderId}`;
         const shortId = orderId.substring(0, 12);
+        // Log the WebSocket URL sent to the client for debugging
+        console.log(`   └─ WS URL: ${wsUrl}`);
 
         // Log order submission
         console.log(`\n📥 NEW ORDER RECEIVED [${shortId}]`);
